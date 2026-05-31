@@ -1,10 +1,11 @@
 # Codemagic CI/CD for UNIQ Performance mobile app.
 # App Store Connect API key: Team integrations -> Developer Portal -> Uniq
 #
-# Code signing (Team settings -> Code signing identities -> iOS certificates):
-# Generate certificate -> Apple Distribution -> API key "Uniq"
-# Reference name MUST be: uniq_distribution
-# (Provisioning profile is created/fetched from Apple during each build.)
+# Code signing setup (Team settings -> Code signing identities):
+# 1. iOS certificates -> Generate certificate -> Apple Distribution -> Uniq
+#    Reference name: uniq_distribution
+# 2. iOS provisioning profiles -> Fetch profiles -> com.uniqperformance.mobile (App Store)
+#    Reference name: uniq_appstore -> click "Download selected" (must appear in team list)
 
 workflows:
   flutter-ios-testflight:
@@ -15,10 +16,10 @@ workflows:
       app_store_connect: Uniq
     environment:
       ios_signing:
+        provisioning_profiles:
+          - uniq_appstore
         certificates:
           - uniq_distribution
-      vars:
-        BUNDLE_ID: com.uniqperformance.mobile
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -29,15 +30,6 @@ workflows:
         - pattern: main
           include: true
     scripts:
-      - name: Set up keychain
-        script: keychain initialize
-      - name: Fetch App Store profile from Apple
-        script: |
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create
-      - name: Add signing certificates to keychain
-        script: keychain add-certificates
       - name: Set up code signing settings on Xcode project
         script: xcode-project use-profiles
       - name: Get Flutter packages
