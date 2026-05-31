@@ -1,12 +1,9 @@
 # Codemagic CI/CD for UNIQ Performance mobile app.
 # App Store Connect API key: Team integrations -> Developer Portal -> Uniq
 #
-# Required once in Codemagic (Team settings -> Environment variables):
-#   Group name: code-signing
-#   Variable: CERTIFICATE_PRIVATE_KEY (secret) = contents of ios_distribution_private_key.pem
-#
-# Before first build with a new key, revoke old Apple Distribution certs at:
-# https://developer.apple.com/account/resources/certificates/list
+# One-time setup (Team settings -> codemagic.yaml settings -> Code signing identities):
+# 1. iOS certificates -> Generate certificate -> Apple Distribution -> API key "Uniq"
+# 2. iOS provisioning profiles -> Fetch profiles -> com.uniqperformance.mobile (App Store)
 
 workflows:
   flutter-ios-testflight:
@@ -16,10 +13,9 @@ workflows:
     integrations:
       app_store_connect: Uniq
     environment:
-      groups:
-        - code-signing
-      vars:
-        BUNDLE_ID: com.uniqperformance.mobile
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.uniqperformance.mobile
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -30,19 +26,6 @@ workflows:
         - pattern: main
           include: true
     scripts:
-      - name: Set up keychain
-        script: keychain initialize
-      - name: Fetch signing files from Apple
-        script: |
-          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
-            echo "ERROR: Add secret env var CERTIFICATE_PRIVATE_KEY in Codemagic group 'code-signing'."
-            exit 1
-          fi
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create
-      - name: Add signing certificates to keychain
-        script: keychain add-certificates
       - name: Set up code signing settings on Xcode project
         script: xcode-project use-profiles
       - name: Get Flutter packages
