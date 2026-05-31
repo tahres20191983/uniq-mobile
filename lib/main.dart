@@ -288,6 +288,11 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
                 await _bindFirebaseMessaging();
                 await Future<void>.delayed(const Duration(milliseconds: 800));
                 await _syncDeviceTokenWithBackend();
+                if (_deviceToken != null && _lastSyncedDeviceToken == _deviceToken) {
+                  debugPrint(
+                    '[PUSH] device-token backend ile eslesti (${_pushPlatformLabel()}).',
+                  );
+                }
                 await _refreshNotificationsFromApi(top: 100);
                 await _flushPendingOpenQueue();
                 _tokenSyncArmedByLogin = false;
@@ -391,10 +396,24 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
   }
 
   /// Yerel bildirim kanali; FCM baglantisi [_bindFirebaseMessaging] ile geciktirilir.
+  String _pushPlatformLabel() {
+    if (defaultTargetPlatform == TargetPlatform.iOS) return 'ios';
+    return 'android';
+  }
+
   Future<void> _initPushNotifications() async {
     try {
       const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const settings = InitializationSettings(android: androidInit);
+      const darwinInit = DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      );
+      const settings = InitializationSettings(
+        android: androidInit,
+        iOS: darwinInit,
+        macOS: darwinInit,
+      );
       await _localNotificationsPlugin.initialize(settings);
       await _requestNotificationPermissions();
     } catch (e, st) {
@@ -512,7 +531,16 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       priority: Priority.high,
       playSound: true,
     );
-    const details = NotificationDetails(android: androidDetails);
+    const darwinDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: darwinDetails,
+      macOS: darwinDetails,
+    );
     await _localNotificationsPlugin.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       notification.title ?? 'UNIQ',
@@ -1000,6 +1028,7 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       final escapedToken = _deviceToken!
           .replaceAll(r'\', r'\\')
           .replaceAll("'", r"\'");
+      final platform = _pushPlatformLabel();
       final result = await _controller!.runJavaScriptReturningResult('''
 (async function() {
   try {
@@ -1012,7 +1041,7 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       credentials: 'include',
       body: JSON.stringify({
         deviceToken: '$escapedToken',
-        platform: 'android'
+        platform: '$platform'
       })
     });
     var data = null;
