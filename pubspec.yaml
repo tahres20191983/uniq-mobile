@@ -1,7 +1,7 @@
 name: uniq_mobile
 description: UNIQ Performance mobile app (WebView shell).
 publish_to: 'none'
-version: 1.0.5+13
+version: 1.0.6+14
 
 environment:
   sdk: ^3.12.0

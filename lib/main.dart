@@ -201,6 +201,8 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       'uniq.notifications.open_retry.v1';
   static const String _googleServerClientId =
       '721753132038-7ouaeaqrsp91qj8bbnkcvqkmrvf7c89i.apps.googleusercontent.com';
+  static const String _googleIosClientId =
+      '721753132038-lh42ifc4qpdbqd92klob70b0tnopu4cg.apps.googleusercontent.com';
   WebViewController? _controller;
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
   bool _googleInitialized = false;
@@ -359,11 +361,20 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
 
   Future<void> _initGoogleSignIn() async {
     if (_googleInitialized) return;
-    // Android: google-services.json icinde web client (type 3) + SHA hash'ler; serverClientId zorunlu.
-    final attempts = <Future<void> Function()>[
+    // Android: serverClientId + SHA. iOS: clientId + serverClientId (GoogleService-Info / Info.plist).
+    final attempts = <Future<void> Function()>[];
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      attempts.add(
+        () => _googleSignIn.initialize(
+          clientId: _googleIosClientId,
+          serverClientId: _googleServerClientId,
+        ),
+      );
+    }
+    attempts.add(
       () => _googleSignIn.initialize(serverClientId: _googleServerClientId),
-      () => _googleSignIn.initialize(),
-    ];
+    );
+    attempts.add(() => _googleSignIn.initialize());
 
     for (final attempt in attempts) {
       try {
@@ -1343,21 +1354,33 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
 
   if (veyaEl) {
     veyaEl.insertAdjacentElement('afterend', row);
+    hideSiteGoogleWidgets();
     return;
   }
 
   if (registerEl) {
     registerEl.insertAdjacentElement('beforebegin', row);
+    hideSiteGoogleWidgets();
     return;
   }
 
   var form = document.querySelector('form');
   if (form && form.parentElement) {
     form.parentElement.appendChild(row);
+    hideSiteGoogleWidgets();
     return;
   }
 
   document.body.appendChild(btn);
+  hideSiteGoogleWidgets();
+
+  function hideSiteGoogleWidgets() {
+    var gsi = document.getElementById('googleSignInBtn');
+    if (gsi) {
+      var wrap = gsi.closest('div') || gsi;
+      wrap.style.display = 'none';
+    }
+  }
 })();
 ''');
     } catch (_) {
@@ -1387,6 +1410,11 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       return 'Google hata (${e.code.name}): ${e.description ?? e}';
     }
     final detail = e.toString();
+    if (defaultTargetPlatform == TargetPlatform.iOS &&
+        _isGoogleSignInConfigError(e)) {
+      return 'iOS Google istemci hatasi. Google Cloud > Credentials > iOS '
+          'client bundle ID: com.uniqperformance.mobile olmali.';
+    }
     if (_isGoogleSignInConfigError(e)) {
       return 'Imza/istemci hatasi. Google Cloud > Credentials > Android '
           'istemcisine Play SHA-1 ekleyin: 01:AE:2D:2C:60:44:B0:...';
@@ -1403,8 +1431,10 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     );
   }
 
-  /// Native imza hatasinda site uzerindeki web Google dugmesini dener.
+  /// Native imza hatasinda site uzerindeki web Google dugmesini dener (Android).
+  /// iOS WebView icinde Google web girisi guvenilir degil; native kullanilir.
   Future<bool> _triggerWebGoogleSignIn() async {
+    if (defaultTargetPlatform == TargetPlatform.iOS) return false;
     if (_controller == null) return false;
     try {
       await _controller!.runJavaScript('''
