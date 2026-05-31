@@ -20,7 +20,7 @@ workflows:
         certificates:
           - uniq_distribution
       flutter: stable
-      xcode: stable
+      xcode: latest
       cocoapods: default
     triggering:
       events:
