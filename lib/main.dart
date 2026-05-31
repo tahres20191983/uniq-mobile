@@ -324,24 +324,38 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
                 return NavigationDecision.prevent;
               }
 
-              if (_shouldOpenInsideWebView(uri)) {
+              // Site + odeme/3D/BKM/banka: WebView icinde kalmali (iOS Safari'ye acinca oturum kaybolur).
+              if (_shouldStayInWebView(uri)) {
                 return NavigationDecision.navigate;
               }
 
-              if (_isPaymentUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-                return NavigationDecision.prevent;
+              final host = uri.host.toLowerCase();
+              final trusted = _trustedLinkHosts.contains(host) ||
+                  _trustedLinkHosts.any((h) => host.endsWith('.$h'));
+              if (!trusted) {
+                final opened = await launchUrl(
+                  uri,
+                  mode: LaunchMode.externalApplication,
+                );
+                return opened
+                    ? NavigationDecision.prevent
+                    : NavigationDecision.navigate;
               }
 
-              final opened = await launchUrl(
-                uri,
-                mode: LaunchMode.externalApplication,
-              );
-              return opened ? NavigationDecision.prevent : NavigationDecision.navigate;
+              return NavigationDecision.navigate;
             },
           ),
         );
       unawaited(_configureNativeWebViewChrome(_controller!));
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        unawaited(
+          _controller!.setUserAgent(
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+            'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+            'Mobile/15E148 Safari/604.1',
+          ),
+        );
+      }
       _loadHome();
     } else {
       _loading = false;
@@ -1112,7 +1126,45 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
         u.contains('3d') ||
         u.contains('iyzico') ||
         u.contains('paytr') ||
-        u.contains('bank');
+        u.contains('bank') ||
+        u.contains('secure');
+  }
+
+  bool _isPaymentRelatedHost(Uri uri) {
+    final host = uri.host.toLowerCase();
+    if (host.contains('bkm') || host.endsWith('.bkm.com.tr')) return true;
+    if (_isPaymentUrl(uri)) return true;
+
+    const bankHints = <String>[
+      'garanti',
+      'akbank',
+      'isbank',
+      'iscep',
+      'yapikredi',
+      'ziraat',
+      'halkbank',
+      'qnbfinansbank',
+      'qnb',
+      'denizbank',
+      'finansbank',
+      'teb',
+      'vakifbank',
+      'ingbank',
+      'kuveytturk',
+      'papara',
+      'paycell',
+      'emv',
+      'pos',
+    ];
+    for (final hint in bankHints) {
+      if (host.contains(hint)) return true;
+    }
+    return false;
+  }
+
+  bool _shouldStayInWebView(Uri uri) {
+    if (_shouldOpenInsideWebView(uri)) return true;
+    return _isPaymentRelatedHost(uri);
   }
 
   bool _shouldOpenInsideWebView(Uri uri) {
@@ -1194,10 +1246,18 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
   var originalOpen = window.open;
   window.open = function(url, name, specs) {
     if (url) {
+      var lower = String(url).toLowerCase();
+      var isGoogle = lower.indexOf('google') >= 0 || lower.indexOf('accounts.google') >= 0;
+      if (isGoogle) {
+        window.location.href = url;
+        return null;
+      }
+    }
+    if (originalOpen) return originalOpen.apply(window, arguments);
+    if (url) {
       window.location.href = url;
       return null;
     }
-    if (originalOpen) return originalOpen.apply(window, arguments);
     return null;
   };
 })();
