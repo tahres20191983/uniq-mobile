@@ -13,8 +13,6 @@ workflows:
     integrations:
       app_store_connect: Uniq
     environment:
-      groups:
-        - code-signing
       vars:
         BUNDLE_ID: com.uniqperformance.mobile
       flutter: stable
