@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "136747925678",
+    "project_id": "uniq-mobile-cf732",
+    "storage_bucket": "uniq-mobile-cf732.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:136747925678:android:71dd534f596b36a3462d3f",
+        "android_client_info": {
+          "package_name": "com.uniqperformance.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "721753132038-36e6dd4j8srs6qmbr7u4lcqb21qor7e7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.uniqperformance.mobile",
+            "certificate_hash": "727b6326acfae412d81effe8d7a853d7a861c8e4"
+          }
+        },
+        {
+          "client_id": "721753132038-36e6dd4j8srs6qmbr7u4lcqb21qor7e7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.uniqperformance.mobile",
+            "certificate_hash": "01ae2d2c6044b00da3eb7d9f8c4a8d297707ae70"
+          }
+        },
+        {
+          "client_id": "721753132038-7ouaeaqrsp91qj8bbnkcvqkmrvf7c89i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1OUwfhVidNM0UfA1HGWEuZ5l48vLFEoc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "721753132038-7ouaeaqrsp91qj8bbnkcvqkmrvf7c89i.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
