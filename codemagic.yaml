@@ -1,9 +1,10 @@
 # Codemagic CI/CD for UNIQ Performance mobile app.
-# App Store Connect API key in Team integrations -> Developer Portal: Uniq
+# App Store Connect API key: Team integrations -> Developer Portal -> Uniq
 #
-# Optional (recommended after first successful build):
-# Add secret env var CERTIFICATE_PRIVATE_KEY in group "code-signing"
-# so the same distribution certificate is reused across builds.
+# One-time setup (Team settings -> Code signing identities):
+# 1. iOS certificates -> Generate certificate -> Apple Distribution -> API key "Uniq"
+#    (If 409 error: revoke old Distribution certs at developer.apple.com first)
+# 2. iOS provisioning profiles -> Fetch profiles -> com.uniqperformance.mobile (App Store)
 
 workflows:
   flutter-ios-testflight:
@@ -13,8 +14,9 @@ workflows:
     integrations:
       app_store_connect: Uniq
     environment:
-      vars:
-        BUNDLE_ID: com.uniqperformance.mobile
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.uniqperformance.mobile
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -25,19 +27,6 @@ workflows:
         - pattern: main
           include: true
     scripts:
-      - name: Set up keychain
-        script: keychain initialize
-      - name: Fetch signing files from Apple
-        script: |
-          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
-            openssl genrsa -out /tmp/ios_distribution_private_key.pem 2048
-            export CERTIFICATE_PRIVATE_KEY="$(cat /tmp/ios_distribution_private_key.pem)"
-          fi
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create
-      - name: Add signing certificates to keychain
-        script: keychain add-certificates
       - name: Set up code signing settings on Xcode project
         script: xcode-project use-profiles
       - name: Get Flutter packages
