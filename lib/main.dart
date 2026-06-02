@@ -1282,7 +1282,6 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
 
   function looksLikeGoogleTarget(el) {
     if (!el) return false;
-    if (el.closest && el.closest('#googleSignInBtn')) return false;
     if (el.closest && el.closest('#uniq-native-google-btn')) return true;
     var text = ((el.innerText || el.value || '') + '').toLowerCase();
     var cls = ((el.className || '') + '').toLowerCase();
@@ -1384,8 +1383,6 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       await _controller!.runJavaScript('''
 (function() {
   if (document.getElementById('uniq-native-google-btn')) return;
-  // Web giris sayfasinda Google widget zaten var; ekstra buton ekleme.
-  if (document.getElementById('googleSignInBtn')) return;
 
   var btn = document.createElement('button');
   btn.id = 'uniq-native-google-btn';
@@ -1397,14 +1394,15 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
   btn.style.display = 'flex';
   btn.style.alignItems = 'center';
   btn.style.justifyContent = 'center';
-  btn.style.gap = '8px';
-  btn.style.border = 'none';
-  btn.style.borderRadius = '8px';
-  btn.style.background = '#CCFF00';
-  btn.style.color = '#000';
+  btn.style.gap = '10px';
+  btn.style.border = '1px solid #DADCE0';
+  btn.style.borderRadius = '10px';
+  btn.style.background = '#FFFFFF';
+  btn.style.color = '#1F1F1F';
   btn.style.fontSize = '15px';
-  btn.style.fontWeight = '700';
+  btn.style.fontWeight = '600';
   btn.style.cursor = 'pointer';
+  btn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.12)';
 
   var icon = document.createElement('img');
   icon.src = 'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg';
@@ -1421,8 +1419,8 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
   spinner.style.display = 'none';
   spinner.style.width = '14px';
   spinner.style.height = '14px';
-  spinner.style.border = '2px solid rgba(0,0,0,0.25)';
-  spinner.style.borderTopColor = '#000';
+  spinner.style.border = '2px solid rgba(31,31,31,0.2)';
+  spinner.style.borderTopColor = '#1F1F1F';
   spinner.style.borderRadius = '50%';
   spinner.style.animation = 'uniq-google-spin 0.8s linear infinite';
 
@@ -1436,6 +1434,9 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
   btn.appendChild(icon);
   btn.appendChild(label);
   btn.appendChild(spinner);
+
+  // Site Google widget'i gizle; native giris bu butondan calisir.
+  hideSiteGoogleWidget();
 
   btn.addEventListener('click', function(e) {
     e.preventDefault();
@@ -1460,7 +1461,10 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     var gsi = document.getElementById('googleSignInBtn');
     if (gsi) {
       var wrap = gsi.closest('div') || gsi;
-      wrap.style.display = 'none';
+      wrap.style.setProperty('display', 'none', 'important');
+      wrap.style.setProperty('visibility', 'hidden', 'important');
+      wrap.style.setProperty('height', '0', 'important');
+      wrap.style.setProperty('overflow', 'hidden', 'important');
     }
   }
 
