@@ -258,8 +258,6 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
           onMessageReceived: (message) async {
             if (message.message == 'google_native_login') {
               await _handleNativeGoogleLogin();
-            } else if (message.message == 'apple_native_login') {
-              await _triggerSiteAppleSignIn();
             }
           },
         )
@@ -304,8 +302,8 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
               }
               await _injectGooglePopupBridge();
               await _injectGoogleNativeButtonBridge();
-              await _injectAppleNativeButtonBridge();
-              await _injectLoginAuthButtonsIfNeeded();
+              await _hideWebAppleSignInIfNeeded();
+              await _injectInlineGoogleButtonIfNeeded();
               await _injectMobileScrollbarStyle();
             },
             onWebResourceError: (error) {
@@ -1328,42 +1326,47 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     return canSync;
   }
 
-  Future<void> _injectAppleNativeButtonBridge() async {
-    if (_controller == null) return;
+  /// iOS: Web giris sayfasindaki Apple ile giris ogelerini gizler (uygulama sunmuyor).
+  Future<void> _hideWebAppleSignInIfNeeded() async {
+    if (_controller == null ||
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        !_isLikelyLoginUrl(_currentUrl)) {
+      return;
+    }
     try {
       await _controller!.runJavaScript('''
 (function() {
-  if (window.__uniqNativeAppleBridgeInstalled) return;
-  window.__uniqNativeAppleBridgeInstalled = true;
+  if (window.__uniqAppleHidden) return;
+  window.__uniqAppleHidden = true;
 
-  function looksLikeAppleTarget(el) {
-    if (!el) return false;
-    if (el.closest && el.closest('#uniq-native-apple-btn')) return true;
-    var text = ((el.innerText || el.value || '') + '').toLowerCase();
-    var cls = ((el.className || '') + '').toLowerCase();
-    var href = '';
-    if (el.getAttribute) href = (el.getAttribute('href') || '').toLowerCase();
-    return text.indexOf('apple') >= 0 ||
-      cls.indexOf('apple') >= 0 ||
-      href.indexOf('appleid') >= 0 ||
-      href.indexOf('/account/apple') >= 0;
+  function hideEl(el) {
+    if (!el) return;
+    var wrap = el.closest('div, section, li, form') || el;
+    wrap.style.setProperty('display', 'none', 'important');
+    wrap.style.setProperty('visibility', 'hidden', 'important');
+    wrap.style.setProperty('height', '0', 'important');
+    wrap.style.setProperty('overflow', 'hidden', 'important');
+    wrap.setAttribute('aria-hidden', 'true');
   }
 
-  document.addEventListener('click', function(event) {
-    var el = event.target && event.target.closest
-      ? event.target.closest('a,button,input[type="submit"],div,span')
-      : null;
-    if (!looksLikeAppleTarget(el)) return;
-    if (el.closest && el.closest('#uniq-native-apple-btn')) return;
+  var ids = ['appleSignInBtn', 'AppleSignIn', 'apple-sign-in', 'appleid-signin'];
+  for (var i = 0; i < ids.length; i++) hideEl(document.getElementById(ids[i]));
 
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-
-    if (window.UniqNativeAuth && window.UniqNativeAuth.postMessage) {
-      window.UniqNativeAuth.postMessage('apple_native_login');
+  var nodes = document.querySelectorAll(
+    'a, button, div, span, iframe, [class*="apple" i], [id*="apple" i]'
+  );
+  for (var j = 0; j < nodes.length; j++) {
+    var n = nodes[j];
+    if (n.id === 'uniq-native-google-btn') continue;
+    var t = ((n.innerText || n.title || n.getAttribute('aria-label') || '') + '').toLowerCase();
+    var src = (n.src || n.getAttribute('href') || '').toLowerCase();
+    if (src.indexOf('appleid') >= 0 ||
+        t.indexOf('apple ile') >= 0 ||
+        t.indexOf('sign in with apple') >= 0 ||
+        (t.indexOf('apple') >= 0 && (t.indexOf('gir') >= 0 || t.indexOf('sign') >= 0))) {
+      hideEl(n);
     }
-  }, true);
+  }
 })();
 ''');
     } catch (_) {
@@ -1371,14 +1374,75 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     }
   }
 
-  Future<void> _injectLoginAuthButtonsIfNeeded() async {
+  Future<void> _injectInlineGoogleButtonIfNeeded() async {
     if (_controller == null || !_isLikelyLoginUrl(_currentUrl)) return;
-    final includeApple = defaultTargetPlatform == TargetPlatform.iOS;
     try {
       await _controller!.runJavaScript('''
 (function() {
-  var includeApple = $includeApple;
-  if (document.getElementById('uniq-native-auth-stack')) return;
+  if (document.getElementById('uniq-native-google-btn')) return;
+
+  var btn = document.createElement('button');
+  btn.id = 'uniq-native-google-btn';
+  btn.type = 'button';
+  btn.style.width = '100%';
+  btn.style.maxWidth = '280px';
+  btn.style.height = '44px';
+  btn.style.margin = '10px auto 0 auto';
+  btn.style.display = 'flex';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'center';
+  btn.style.gap = '8px';
+  btn.style.border = 'none';
+  btn.style.borderRadius = '8px';
+  btn.style.background = '#CCFF00';
+  btn.style.color = '#000';
+  btn.style.fontSize = '15px';
+  btn.style.fontWeight = '700';
+  btn.style.cursor = 'pointer';
+
+  var icon = document.createElement('img');
+  icon.src = 'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg';
+  icon.alt = 'Google';
+  icon.style.width = '18px';
+  icon.style.height = '18px';
+
+  var label = document.createElement('span');
+  label.id = 'uniq-native-google-btn-label';
+  label.textContent = 'Google ile giris yap';
+
+  var spinner = document.createElement('span');
+  spinner.id = 'uniq-native-google-spinner';
+  spinner.style.display = 'none';
+  spinner.style.width = '14px';
+  spinner.style.height = '14px';
+  spinner.style.border = '2px solid rgba(0,0,0,0.25)';
+  spinner.style.borderTopColor = '#000';
+  spinner.style.borderRadius = '50%';
+  spinner.style.animation = 'uniq-google-spin 0.8s linear infinite';
+
+  if (!document.getElementById('uniq-google-spin-style')) {
+    var style = document.createElement('style');
+    style.id = 'uniq-google-spin-style';
+    style.textContent = '@keyframes uniq-google-spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }';
+    document.head.appendChild(style);
+  }
+
+  btn.appendChild(icon);
+  btn.appendChild(label);
+  btn.appendChild(spinner);
+
+  btn.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (window.__uniqGoogleLoginPending) return;
+    window.__uniqGoogleLoginPending = true;
+    btn.disabled = true;
+    btn.style.opacity = '0.85';
+    if (spinner) spinner.style.display = 'inline-block';
+    if (label) label.textContent = 'Bekleyiniz...';
+    if (window.UniqNativeAuth && window.UniqNativeAuth.postMessage) {
+      window.UniqNativeAuth.postMessage('google_native_login');
+    }
+  });
 
   function isVisible(el) {
     if (!el || !el.getBoundingClientRect) return false;
@@ -1386,130 +1450,17 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     return r.width > 0 && r.height > 0;
   }
 
-  function createAuthButton(id, labelText, options) {
-    var btn = document.createElement('button');
-    btn.id = id;
-    btn.type = 'button';
-    btn.style.width = '100%';
-    btn.style.maxWidth = '280px';
-    btn.style.height = '44px';
-    btn.style.margin = '0 auto';
-    btn.style.display = 'flex';
-    btn.style.alignItems = 'center';
-    btn.style.justifyContent = 'center';
-    btn.style.gap = '8px';
-    btn.style.borderRadius = '8px';
-    btn.style.fontSize = '15px';
-    btn.style.fontWeight = '600';
-    btn.style.cursor = 'pointer';
-    btn.style.boxSizing = 'border-box';
-    btn.style.background = options.background;
-    btn.style.color = options.color;
-    btn.style.border = options.border;
-
-    if (options.iconHtml) {
-      var iconWrap = document.createElement('span');
-      iconWrap.innerHTML = options.iconHtml;
-      iconWrap.style.display = 'flex';
-      iconWrap.style.alignItems = 'center';
-      btn.appendChild(iconWrap);
+  function hideSiteGoogleWidget() {
+    var gsi = document.getElementById('googleSignInBtn');
+    if (gsi) {
+      var wrap = gsi.closest('div') || gsi;
+      wrap.style.display = 'none';
     }
-
-    var label = document.createElement('span');
-    label.id = id + '-label';
-    label.textContent = labelText;
-    btn.appendChild(label);
-
-    if (options.spinnerId) {
-      var spinner = document.createElement('span');
-      spinner.id = options.spinnerId;
-      spinner.style.display = 'none';
-      spinner.style.width = '14px';
-      spinner.style.height = '14px';
-      spinner.style.border = options.spinnerBorder;
-      spinner.style.borderTopColor = options.spinnerTop;
-      spinner.style.borderRadius = '50%';
-      spinner.style.animation = 'uniq-auth-spin 0.8s linear infinite';
-      btn.appendChild(spinner);
-    }
-
-    return btn;
   }
-
-  if (!document.getElementById('uniq-auth-spin-style')) {
-    var style = document.createElement('style');
-    style.id = 'uniq-auth-spin-style';
-    style.textContent = '@keyframes uniq-auth-spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }';
-    document.head.appendChild(style);
-  }
-
-  var stack = document.createElement('div');
-  stack.id = 'uniq-native-auth-stack';
-  stack.style.width = '100%';
-  stack.style.display = 'flex';
-  stack.style.flexDirection = 'column';
-  stack.style.alignItems = 'center';
-  stack.style.gap = '10px';
-  stack.style.padding = '10px 10px 0 10px';
-
-  var appleSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.3 1.88-1.22 0-1.54-.73-2.88-.73-1.34 0-1.72.71-2.88.76-1.16.05-2.04-1.06-3.02-2.01C2.79 17.25 1.38 12.45 3.05 9.5c.84-1.48 2.35-2.42 3.98-2.45 1.24-.02 2.41.83 3.17.83.76 0 2.18-1.03 3.68-.88.63.03 2.4.25 3.54 1.9-3.07 1.67-2.58 6.05.63 7.4zM14.02 3.5c.67-.8 1.12-1.91.99-3.02-1.05.04-2.32.7-3.08 1.5-.72.75-1.35 1.96-1.18 3.12 1.25.1 2.52-.64 3.27-1.6z"/></svg>';
-
-  if (includeApple) {
-    var appleBtn = createAuthButton('uniq-native-apple-btn', 'Apple ile giris yap', {
-      background: '#000000',
-      color: '#FFFFFF',
-      border: 'none',
-      iconHtml: appleSvg,
-      spinnerId: 'uniq-native-apple-spinner',
-      spinnerBorder: '2px solid rgba(255,255,255,0.35)',
-      spinnerTop: '#FFFFFF'
-    });
-    appleBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      if (window.__uniqAppleLoginPending) return;
-      window.__uniqAppleLoginPending = true;
-      appleBtn.disabled = true;
-      appleBtn.style.opacity = '0.85';
-      var al = document.getElementById('uniq-native-apple-btn-label');
-      var asp = document.getElementById('uniq-native-apple-spinner');
-      if (asp) asp.style.display = 'inline-block';
-      if (al) al.textContent = 'Bekleyiniz...';
-      if (window.UniqNativeAuth && window.UniqNativeAuth.postMessage) {
-        window.UniqNativeAuth.postMessage('apple_native_login');
-      }
-    });
-    stack.appendChild(appleBtn);
-  }
-
-  var googleBtn = createAuthButton('uniq-native-google-btn', 'Google ile giris yap', {
-    background: '#FFFFFF',
-    color: '#1F1F1F',
-    border: '1px solid #DADCE0',
-    iconHtml: '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" width="18" height="18" style="display:block"/>',
-    spinnerId: 'uniq-native-google-spinner',
-    spinnerBorder: '2px solid rgba(0,0,0,0.2)',
-    spinnerTop: '#1F1F1F'
-  });
-  googleBtn.addEventListener('click', function(e) {
-    e.preventDefault();
-    if (window.__uniqGoogleLoginPending) return;
-    window.__uniqGoogleLoginPending = true;
-    googleBtn.disabled = true;
-    googleBtn.style.opacity = '0.85';
-    var gl = document.getElementById('uniq-native-google-btn-label');
-    var gsp = document.getElementById('uniq-native-google-spinner');
-    if (gsp) gsp.style.display = 'inline-block';
-    if (gl) gl.textContent = 'Bekleyiniz...';
-    if (window.UniqNativeAuth && window.UniqNativeAuth.postMessage) {
-      window.UniqNativeAuth.postMessage('google_native_login');
-    }
-  });
-  stack.appendChild(googleBtn);
 
   var all = Array.prototype.slice.call(document.querySelectorAll('*'));
   var veyaCandidates = all.filter(function(el) {
-    var t = (el.innerText || '').trim().toLowerCase();
-    return t === 'veya' && isVisible(el);
+    return (el.innerText || '').trim().toLowerCase() === 'veya' && isVisible(el);
   });
   var registerCandidates = all.filter(function(el) {
     var t = (el.innerText || '').trim().toLowerCase();
@@ -1536,128 +1487,31 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     }
   }
 
-  function hideSiteOAuthWidgets() {
-    var gsi = document.getElementById('googleSignInBtn');
-    if (gsi) {
-      var gwrap = gsi.closest('div') || gsi;
-      gwrap.style.display = 'none';
-    }
-    var ids = ['appleSignInBtn', 'AppleSignIn', 'apple-sign-in'];
-    for (var i = 0; i < ids.length; i++) {
-      var el = document.getElementById(ids[i]);
-      if (el) {
-        var wrap = el.closest('div') || el;
-        wrap.style.display = 'none';
-      }
-    }
-    var nodes = document.querySelectorAll('iframe[src*="appleid"], [class*="apple"], [id*="apple" i]');
-    for (var j = 0; j < nodes.length; j++) {
-      var n = nodes[j];
-      if (n.closest && n.closest('#uniq-native-auth-stack')) continue;
-      var txt = ((n.innerText || '') + '').toLowerCase();
-      if (txt.indexOf('apple') >= 0 && txt.indexOf('gir') >= 0) {
-        var p = n.closest('div') || n;
-        if (p && p.id !== 'uniq-native-auth-stack') p.style.display = 'none';
-      }
-    }
-  }
+  var row = document.createElement('div');
+  row.style.width = '100%';
+  row.style.display = 'flex';
+  row.style.justifyContent = 'center';
+  row.style.padding = '0 10px';
+  row.appendChild(btn);
 
   if (veyaEl) {
-    veyaEl.insertAdjacentElement('afterend', stack);
-    hideSiteOAuthWidgets();
+    veyaEl.insertAdjacentElement('afterend', row);
+    hideSiteGoogleWidget();
     return;
   }
   if (registerEl) {
-    registerEl.insertAdjacentElement('beforebegin', stack);
-    hideSiteOAuthWidgets();
+    registerEl.insertAdjacentElement('beforebegin', row);
+    hideSiteGoogleWidget();
     return;
   }
   var form = document.querySelector('form');
   if (form && form.parentElement) {
-    form.parentElement.appendChild(stack);
-    hideSiteOAuthWidgets();
+    form.parentElement.appendChild(row);
+    hideSiteGoogleWidget();
     return;
   }
-  document.body.appendChild(stack);
-  hideSiteOAuthWidgets();
-})();
-''');
-    } catch (_) {
-      // Best effort only.
-    }
-  }
-
-  Future<void> _triggerSiteAppleSignIn() async {
-    if (_controller == null) return;
-    try {
-      final clicked = await _controller!.runJavaScriptReturningResult('''
-(function() {
-  function tryClick(el) {
-    if (!el) return false;
-    try {
-      el.click();
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  var byId = [
-    document.getElementById('appleSignInBtn'),
-    document.getElementById('AppleSignIn'),
-    document.querySelector('#appleSignInBtn button'),
-    document.querySelector('#appleSignInBtn div[role="button"]'),
-    document.querySelector('[data-provider="apple"]'),
-    document.querySelector('a[href*="appleid"]')
-  ];
-  for (var i = 0; i < byId.length; i++) {
-    if (tryClick(byId[i])) return true;
-  }
-
-  var nodes = document.querySelectorAll('button, a, div[role="button"], span');
-  for (var j = 0; j < nodes.length; j++) {
-    var el = nodes[j];
-    if (el.closest && el.closest('#uniq-native-auth-stack')) continue;
-    var t = ((el.innerText || el.value || '') + '').toLowerCase();
-    if (t.indexOf('apple') >= 0 &&
-        (t.indexOf('gir') >= 0 || t.indexOf('sign in') >= 0 || t.indexOf('signin') >= 0)) {
-      if (tryClick(el)) return true;
-    }
-  }
-  return false;
-})();
-''');
-      final ok = clicked == true || clicked.toString() == 'true';
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Apple giris dugmesi bulunamadi. Lutfen web surumunu deneyin.'),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('[AUTH] Apple web trigger failed: $e');
-    } finally {
-      await _setInlineAppleButtonLoading(false);
-    }
-  }
-
-  Future<void> _setInlineAppleButtonLoading(bool loading) async {
-    if (_controller == null) return;
-    try {
-      final loadingLiteral = loading ? 'true' : 'false';
-      await _controller!.runJavaScript('''
-(function() {
-  var loading = $loadingLiteral;
-  var btn = document.getElementById('uniq-native-apple-btn');
-  var label = document.getElementById('uniq-native-apple-btn-label');
-  var spinner = document.getElementById('uniq-native-apple-spinner');
-  window.__uniqAppleLoginPending = loading;
-  if (!btn) return;
-  btn.disabled = loading;
-  btn.style.opacity = loading ? '0.85' : '1';
-  if (spinner) spinner.style.display = loading ? 'inline-block' : 'none';
-  if (label) label.textContent = loading ? 'Bekleyiniz...' : 'Apple ile giris yap';
+  document.body.appendChild(row);
+  hideSiteGoogleWidget();
 })();
 ''');
     } catch (_) {
