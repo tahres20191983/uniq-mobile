@@ -4,8 +4,8 @@
     <application
         android:label="UNIQ"
         android:name="${applicationName}"
-        android:icon="@drawable/ic_launcher"
-        android:roundIcon="@drawable/ic_launcher_round">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -30,6 +30,12 @@
         <meta-data
             android:name="com.google.android.gms.signin.CLIENT_ID"
             android:value="@string/default_web_client_id" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/ic_launcher_background" />
     </application>
     <queries>
         <intent>

@@ -418,7 +418,8 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
 
   Future<void> _initPushNotifications() async {
     try {
-      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const androidInit =
+          AndroidInitializationSettings('@drawable/ic_notification');
       const darwinInit = DarwinInitializationSettings(
         requestAlertPermission: false,
         requestBadgePermission: false,
@@ -545,6 +546,9 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      icon: 'ic_notification',
+      largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+      color: Color(0xFF0A0A0A),
     );
     const darwinDetails = DarwinNotificationDetails(
       presentAlert: true,
@@ -1380,6 +1384,8 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       await _controller!.runJavaScript('''
 (function() {
   if (document.getElementById('uniq-native-google-btn')) return;
+  // Web giris sayfasinda Google widget zaten var; ekstra buton ekleme.
+  if (document.getElementById('googleSignInBtn')) return;
 
   var btn = document.createElement('button');
   btn.id = 'uniq-native-google-btn';
