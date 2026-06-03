@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -192,6 +193,10 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
       'https://www.uniqperformance.com.tr/Content/images/uniq-logo.svg';
   static const String _googleLoginEndpoint =
       'https://www.uniqperformance.com.tr/Account/GoogleLogin';
+  static const String _appleLoginEndpoint =
+      'https://www.uniqperformance.com.tr/Account/AppleLogin';
+  static const String _deleteAccountUrl =
+      'https://www.uniqperformance.com.tr/Account/DeleteAccount';
   static const String _deviceTokenEndpoint =
       'https://www.uniqperformance.com.tr/api/mobile/device-token';
   static const String _notificationsEndpoint =
@@ -207,6 +212,7 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
   bool _googleInitialized = false;
   bool _googleLoginInProgress = false;
+  bool _appleLoginInProgress = false;
   String? _lastGoogleInitError;
   bool _loading = true;
   bool _showBootSplash = true;
@@ -258,6 +264,8 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
           onMessageReceived: (message) async {
             if (message.message == 'google_native_login') {
               await _handleNativeGoogleLogin();
+            } else if (message.message == 'apple_native_login') {
+              await _handleNativeAppleLogin();
             }
           },
         )
@@ -302,8 +310,7 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
               }
               await _injectGooglePopupBridge();
               await _injectGoogleNativeButtonBridge();
-              await _hideWebAppleSignInIfNeeded();
-              await _injectInlineGoogleButtonIfNeeded();
+              await _injectLoginAuthButtonsIfNeeded();
               await _injectMobileScrollbarStyle();
             },
             onWebResourceError: (error) {
@@ -1329,127 +1336,55 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     return canSync;
   }
 
-  /// iOS: Web giris sayfasindaki Apple ile giris ogelerini gizler (uygulama sunmuyor).
-  Future<void> _hideWebAppleSignInIfNeeded() async {
-    if (_controller == null ||
-        defaultTargetPlatform != TargetPlatform.iOS ||
-        !_isLikelyLoginUrl(_currentUrl)) {
-      return;
-    }
+  bool _isLikelyRegisterUrl(String url) {
+    final u = url.toLowerCase();
+    return u.contains('/account/register') || u.endsWith('/register');
+  }
+
+  bool _isAuthPageUrl(String url) =>
+      _isLikelyLoginUrl(url) || _isLikelyRegisterUrl(url);
+
+  bool _showAccountMenu(String url) =>
+      !_isAuthPageUrl(url) && !url.toLowerCase().contains('/account/deleteaccount');
+
+  Future<void> _openDeleteAccountPage() async {
+    await _controller?.loadRequest(Uri.parse(_deleteAccountUrl));
+  }
+
+  void _showAccountMenuSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF121212),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+              title: const Text('Hesabimi sil'),
+              subtitle: const Text('Kalici hesap silme'),
+              onTap: () {
+                Navigator.pop(ctx);
+                unawaited(_openDeleteAccountPage());
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _injectLoginAuthButtonsIfNeeded() async {
+    if (_controller == null || !_isAuthPageUrl(_currentUrl)) return;
+    final includeApple = defaultTargetPlatform == TargetPlatform.iOS;
     try {
       await _controller!.runJavaScript('''
 (function() {
-  if (window.__uniqAppleHidden) return;
-  window.__uniqAppleHidden = true;
-
-  function hideEl(el) {
-    if (!el) return;
-    var wrap = el.closest('div, section, li, form') || el;
-    wrap.style.setProperty('display', 'none', 'important');
-    wrap.style.setProperty('visibility', 'hidden', 'important');
-    wrap.style.setProperty('height', '0', 'important');
-    wrap.style.setProperty('overflow', 'hidden', 'important');
-    wrap.setAttribute('aria-hidden', 'true');
-  }
-
-  var ids = ['appleSignInBtn', 'AppleSignIn', 'apple-sign-in', 'appleid-signin'];
-  for (var i = 0; i < ids.length; i++) hideEl(document.getElementById(ids[i]));
-
-  var nodes = document.querySelectorAll(
-    'a, button, div, span, iframe, [class*="apple" i], [id*="apple" i]'
-  );
-  for (var j = 0; j < nodes.length; j++) {
-    var n = nodes[j];
-    if (n.id === 'uniq-native-google-btn') continue;
-    var t = ((n.innerText || n.title || n.getAttribute('aria-label') || '') + '').toLowerCase();
-    var src = (n.src || n.getAttribute('href') || '').toLowerCase();
-    if (src.indexOf('appleid') >= 0 ||
-        t.indexOf('apple ile') >= 0 ||
-        t.indexOf('sign in with apple') >= 0 ||
-        (t.indexOf('apple') >= 0 && (t.indexOf('gir') >= 0 || t.indexOf('sign') >= 0))) {
-      hideEl(n);
-    }
-  }
-})();
-''');
-    } catch (_) {
-      // Best effort only.
-    }
-  }
-
-  Future<void> _injectInlineGoogleButtonIfNeeded() async {
-    if (_controller == null || !_isLikelyLoginUrl(_currentUrl)) return;
-    try {
-      await _controller!.runJavaScript('''
-(function() {
-  if (document.getElementById('uniq-native-google-btn')) return;
-
-  var btn = document.createElement('button');
-  btn.id = 'uniq-native-google-btn';
-  btn.type = 'button';
-  btn.style.width = '100%';
-  btn.style.maxWidth = '280px';
-  btn.style.height = '44px';
-  btn.style.margin = '10px auto 0 auto';
-  btn.style.display = 'flex';
-  btn.style.alignItems = 'center';
-  btn.style.justifyContent = 'center';
-  btn.style.gap = '10px';
-  btn.style.border = '1px solid #DADCE0';
-  btn.style.borderRadius = '10px';
-  btn.style.background = '#FFFFFF';
-  btn.style.color = '#1F1F1F';
-  btn.style.fontSize = '15px';
-  btn.style.fontWeight = '600';
-  btn.style.cursor = 'pointer';
-  btn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.12)';
-
-  var icon = document.createElement('img');
-  icon.src = 'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg';
-  icon.alt = 'Google';
-  icon.style.width = '18px';
-  icon.style.height = '18px';
-
-  var label = document.createElement('span');
-  label.id = 'uniq-native-google-btn-label';
-  label.textContent = 'Google ile giris yap';
-
-  var spinner = document.createElement('span');
-  spinner.id = 'uniq-native-google-spinner';
-  spinner.style.display = 'none';
-  spinner.style.width = '14px';
-  spinner.style.height = '14px';
-  spinner.style.border = '2px solid rgba(31,31,31,0.2)';
-  spinner.style.borderTopColor = '#1F1F1F';
-  spinner.style.borderRadius = '50%';
-  spinner.style.animation = 'uniq-google-spin 0.8s linear infinite';
-
-  if (!document.getElementById('uniq-google-spin-style')) {
-    var style = document.createElement('style');
-    style.id = 'uniq-google-spin-style';
-    style.textContent = '@keyframes uniq-google-spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }';
-    document.head.appendChild(style);
-  }
-
-  btn.appendChild(icon);
-  btn.appendChild(label);
-  btn.appendChild(spinner);
-
-  // Site Google widget'i gizle; native giris bu butondan calisir.
-  hideSiteGoogleWidget();
-
-  btn.addEventListener('click', function(e) {
-    e.preventDefault();
-    if (window.__uniqGoogleLoginPending) return;
-    window.__uniqGoogleLoginPending = true;
-    btn.disabled = true;
-    btn.style.opacity = '0.85';
-    if (spinner) spinner.style.display = 'inline-block';
-    if (label) label.textContent = 'Bekleyiniz...';
-    if (window.UniqNativeAuth && window.UniqNativeAuth.postMessage) {
-      window.UniqNativeAuth.postMessage('google_native_login');
-    }
-  });
+  var includeApple = $includeApple;
+  if (document.getElementById('uniq-native-auth-stack')) return;
 
   function isVisible(el) {
     if (!el || !el.getBoundingClientRect) return false;
@@ -1457,71 +1392,244 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
     return r.width > 0 && r.height > 0;
   }
 
-  function hideSiteGoogleWidget() {
+  function hideSiteOAuthWidgets() {
     var gsi = document.getElementById('googleSignInBtn');
     if (gsi) {
-      var wrap = gsi.closest('div') || gsi;
-      wrap.style.setProperty('display', 'none', 'important');
-      wrap.style.setProperty('visibility', 'hidden', 'important');
-      wrap.style.setProperty('height', '0', 'important');
-      wrap.style.setProperty('overflow', 'hidden', 'important');
+      var gwrap = gsi.closest('div') || gsi;
+      gwrap.style.setProperty('display', 'none', 'important');
     }
+    ['appleSignInBtn', 'AppleSignIn', 'apple-sign-in', 'appleid-signin'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        var wrap = el.closest('div') || el;
+        wrap.style.setProperty('display', 'none', 'important');
+      }
+    });
   }
 
+  function createBtn(id, labelText, opts) {
+    var btn = document.createElement('button');
+    btn.id = id;
+    btn.type = 'button';
+    btn.style.width = '100%';
+    btn.style.maxWidth = '280px';
+    btn.style.height = '44px';
+    btn.style.margin = '0 auto';
+    btn.style.display = 'flex';
+    btn.style.alignItems = 'center';
+    btn.style.justifyContent = 'center';
+    btn.style.gap = '10px';
+    btn.style.borderRadius = '10px';
+    btn.style.fontSize = '15px';
+    btn.style.fontWeight = '600';
+    btn.style.cursor = 'pointer';
+    btn.style.background = opts.bg;
+    btn.style.color = opts.color;
+    btn.style.border = opts.border;
+    btn.style.boxShadow = opts.shadow || 'none';
+    if (opts.iconHtml) {
+      var iw = document.createElement('span');
+      iw.innerHTML = opts.iconHtml;
+      iw.style.display = 'flex';
+      btn.appendChild(iw);
+    }
+    var label = document.createElement('span');
+    label.id = id + '-label';
+    label.textContent = labelText;
+    btn.appendChild(label);
+    var spinner = document.createElement('span');
+    spinner.id = id + '-spinner';
+    spinner.style.display = 'none';
+    spinner.style.width = '14px';
+    spinner.style.height = '14px';
+    spinner.style.border = opts.spinnerBorder;
+    spinner.style.borderTopColor = opts.spinnerTop;
+    spinner.style.borderRadius = '50%';
+    spinner.style.animation = 'uniq-auth-spin 0.8s linear infinite';
+    btn.appendChild(spinner);
+    return btn;
+  }
+
+  if (!document.getElementById('uniq-auth-spin-style')) {
+    var style = document.createElement('style');
+    style.id = 'uniq-auth-spin-style';
+    style.textContent = '@keyframes uniq-auth-spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }';
+    document.head.appendChild(style);
+  }
+
+  var stack = document.createElement('div');
+  stack.id = 'uniq-native-auth-stack';
+  stack.style.width = '100%';
+  stack.style.display = 'flex';
+  stack.style.flexDirection = 'column';
+  stack.style.alignItems = 'center';
+  stack.style.gap = '10px';
+  stack.style.padding = '10px 10px 0 10px';
+
+  var appleSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.3 1.88-1.22 0-1.54-.73-2.88-.73-1.34 0-1.72.71-2.88.76-1.16.05-2.04-1.06-3.02-2.01C2.79 17.25 1.38 12.45 3.05 9.5c.84-1.48 2.35-2.42 3.98-2.45 1.24-.02 2.41.83 3.17.83.76 0 2.18-1.03 3.68-.88.63.03 2.4.25 3.54 1.9-3.07 1.67-2.58 6.05.63 7.4zM14.02 3.5c.67-.8 1.12-1.91.99-3.02-1.05.04-2.32.7-3.08 1.5-.72.75-1.35 1.96-1.18 3.12 1.25.1 2.52-.64 3.27-1.6z"/></svg>';
+
+  if (includeApple) {
+    var appleBtn = createBtn('uniq-native-apple-btn', 'Apple ile giris yap', {
+      bg: '#000000', color: '#FFFFFF', border: 'none',
+      iconHtml: appleSvg,
+      spinnerBorder: '2px solid rgba(255,255,255,0.35)', spinnerTop: '#FFFFFF'
+    });
+    appleBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (window.__uniqAppleLoginPending) return;
+      window.__uniqAppleLoginPending = true;
+      appleBtn.disabled = true;
+      appleBtn.style.opacity = '0.85';
+      document.getElementById('uniq-native-apple-btn-spinner').style.display = 'inline-block';
+      document.getElementById('uniq-native-apple-btn-label').textContent = 'Bekleyiniz...';
+      window.UniqNativeAuth.postMessage('apple_native_login');
+    });
+    stack.appendChild(appleBtn);
+  }
+
+  var googleBtn = createBtn('uniq-native-google-btn', 'Google ile giris yap', {
+    bg: '#FFFFFF', color: '#1F1F1F', border: '1px solid #DADCE0',
+    shadow: '0 1px 2px rgba(0,0,0,0.12)',
+    iconHtml: '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18" height="18" alt="Google"/>',
+    spinnerBorder: '2px solid rgba(31,31,31,0.2)', spinnerTop: '#1F1F1F'
+  });
+  googleBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (window.__uniqGoogleLoginPending) return;
+    window.__uniqGoogleLoginPending = true;
+    googleBtn.disabled = true;
+    googleBtn.style.opacity = '0.85';
+    document.getElementById('uniq-native-google-btn-spinner').style.display = 'inline-block';
+    document.getElementById('uniq-native-google-btn-label').textContent = 'Bekleyiniz...';
+    window.UniqNativeAuth.postMessage('google_native_login');
+  });
+  stack.appendChild(googleBtn);
+
+  hideSiteOAuthWidgets();
   var all = Array.prototype.slice.call(document.querySelectorAll('*'));
   var veyaCandidates = all.filter(function(el) {
     return (el.innerText || '').trim().toLowerCase() === 'veya' && isVisible(el);
   });
-  var registerCandidates = all.filter(function(el) {
+  var anchorCandidates = all.filter(function(el) {
     var t = (el.innerText || '').trim().toLowerCase();
-    return isVisible(el) && (t.indexOf('hesabiniz yok') >= 0 || t.indexOf('kayit ol') >= 0);
+    return isVisible(el) && (t.indexOf('hesabiniz yok') >= 0 || t.indexOf('kayit ol') >= 0 || t.indexOf('zaten hesabiniz') >= 0 || t.indexOf('giris yap') >= 0);
   });
-  registerCandidates.sort(function(a, b) {
-    return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
-  });
-  var registerEl = registerCandidates.length ? registerCandidates[0] : null;
-
-  var veyaEl = null;
-  if (veyaCandidates.length) {
-    veyaCandidates.sort(function(a, b) {
-      return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
-    });
-    if (registerEl) {
-      var regTop = registerEl.getBoundingClientRect().top;
-      var best = veyaCandidates.filter(function(el) {
-        return el.getBoundingClientRect().top < regTop;
-      });
-      veyaEl = best.length ? best[best.length - 1] : veyaCandidates[0];
-    } else {
-      veyaEl = veyaCandidates[0];
-    }
-  }
-
-  var row = document.createElement('div');
-  row.style.width = '100%';
-  row.style.display = 'flex';
-  row.style.justifyContent = 'center';
-  row.style.padding = '0 10px';
-  row.appendChild(btn);
-
+  var anchor = anchorCandidates.length ? anchorCandidates[0] : null;
+  var veyaEl = veyaCandidates.length ? veyaCandidates[0] : null;
   if (veyaEl) {
-    veyaEl.insertAdjacentElement('afterend', row);
-    hideSiteGoogleWidget();
+    veyaEl.insertAdjacentElement('afterend', stack);
     return;
   }
-  if (registerEl) {
-    registerEl.insertAdjacentElement('beforebegin', row);
-    hideSiteGoogleWidget();
+  if (anchor) {
+    anchor.insertAdjacentElement('beforebegin', stack);
     return;
   }
   var form = document.querySelector('form');
   if (form && form.parentElement) {
-    form.parentElement.appendChild(row);
-    hideSiteGoogleWidget();
+    form.parentElement.appendChild(stack);
     return;
   }
-  document.body.appendChild(row);
-  hideSiteGoogleWidget();
+  document.body.appendChild(stack);
+})();
+''');
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  Future<void> _postOAuthTokenToBackend({
+    required String endpoint,
+    required String idToken,
+  }) async {
+    if (_controller == null) return;
+    final tokenLiteral = idToken.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
+    await _controller!.runJavaScript('''
+(async function() {
+  try {
+    var idToken = '$tokenLiteral';
+    var response = await fetch('$endpoint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      credentials: 'include',
+      body: 'idToken=' + encodeURIComponent(idToken)
+    });
+    var data = await response.json();
+    if (data && data.success) {
+      var redirect = data.redirectUrl || '/Home/Index';
+      if (redirect.indexOf('http') !== 0) {
+        redirect = 'https://www.uniqperformance.com.tr' + redirect;
+      }
+      window.location.href = redirect;
+      return;
+    }
+    var message = (data && data.message) ? data.message : 'Giris basarisiz.';
+    alert(message);
+  } catch (e) {
+    alert('Giris sirasinda hata olustu.');
+  }
+})();
+''');
+  }
+
+  Future<void> _handleNativeAppleLogin() async {
+    if (_controller == null || defaultTargetPlatform != TargetPlatform.iOS) return;
+    if (_appleLoginInProgress) return;
+    _appleLoginInProgress = true;
+    await _setInlineAppleButtonLoading(true);
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+      final idToken = credential.identityToken;
+      if (idToken == null || idToken.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Apple token alinamadi.')),
+        );
+        return;
+      }
+      await _postOAuthTokenToBackend(
+        endpoint: _appleLoginEndpoint,
+        idToken: idToken,
+      );
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code != AuthorizationErrorCode.canceled && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Apple giris hatasi: ${e.code.name}')),
+        );
+      }
+    } catch (e) {
+      debugPrint('[AUTH] Apple login failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Apple girisi baslatilamadi: $e')),
+        );
+      }
+    } finally {
+      _appleLoginInProgress = false;
+      await _setInlineAppleButtonLoading(false);
+    }
+  }
+
+  Future<void> _setInlineAppleButtonLoading(bool loading) async {
+    if (_controller == null) return;
+    try {
+      final loadingLiteral = loading ? 'true' : 'false';
+      await _controller!.runJavaScript('''
+(function() {
+  var loading = $loadingLiteral;
+  var btn = document.getElementById('uniq-native-apple-btn');
+  var label = document.getElementById('uniq-native-apple-btn-label');
+  var spinner = document.getElementById('uniq-native-apple-btn-spinner');
+  window.__uniqAppleLoginPending = loading;
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.style.opacity = loading ? '0.85' : '1';
+  if (spinner) spinner.style.display = loading ? 'inline-block' : 'none';
+  if (label) label.textContent = loading ? 'Bekleyiniz...' : 'Apple ile giris yap';
 })();
 ''');
     } catch (_) {
@@ -1641,35 +1749,10 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
         return;
       }
 
-      final tokenLiteral = idToken.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
-      await _controller!.runJavaScript('''
-(async function() {
-  try {
-    var idToken = '$tokenLiteral';
-    var response = await fetch('$_googleLoginEndpoint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      credentials: 'include',
-      body: 'idToken=' + encodeURIComponent(idToken)
-    });
-
-    var data = await response.json();
-    if (data && data.success) {
-      var redirect = data.redirectUrl || '/Home/Index';
-      if (redirect.indexOf('http') !== 0) {
-        redirect = 'https://www.uniqperformance.com.tr' + redirect;
-      }
-      window.location.href = redirect;
-      return;
-    }
-
-    var message = (data && data.message) ? data.message : 'Google giris basarisiz.';
-    alert(message);
-  } catch (e) {
-    alert('Google giris sirasinda hata olustu.');
-  }
-})();
-''');
+      await _postOAuthTokenToBackend(
+        endpoint: _googleLoginEndpoint,
+        idToken: idToken,
+      );
     } on GoogleSignInException catch (e) {
       debugPrint('[AUTH] GoogleSignInException: ${e.code} $e');
       if (_controller != null) {
@@ -1701,7 +1784,7 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
   var loading = $loadingLiteral;
   var btn = document.getElementById('uniq-native-google-btn');
   var label = document.getElementById('uniq-native-google-btn-label');
-  var spinner = document.getElementById('uniq-native-google-spinner');
+  var spinner = document.getElementById('uniq-native-google-btn-spinner');
   window.__uniqGoogleLoginPending = loading;
   if (!btn) return;
   btn.disabled = loading;
@@ -1784,6 +1867,20 @@ class _UniqWebViewPageState extends State<UniqWebViewPage> {
                       WebViewWidget(controller: _controller!),
                       if (_loading)
                         const Center(child: CircularProgressIndicator()),
+                      if (_showAccountMenu(_currentUrl) && !_showBootSplash)
+                        Positioned(
+                          top: MediaQuery.paddingOf(context).top + 4,
+                          right: 8,
+                          child: Material(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(8),
+                            child: IconButton(
+                              tooltip: 'Hesap',
+                              icon: const Icon(Icons.more_vert, color: Colors.white),
+                              onPressed: _showAccountMenuSheet,
+                            ),
+                          ),
+                        ),
                       if (_showBootSplash)
                         Container(
                           color: const Color(0xFF07090F),
